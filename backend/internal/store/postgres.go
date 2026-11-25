@@ -181,6 +181,41 @@ func InsertBatch(ctx context.Context, pool *pgxpool.Pool, batch telemetry.Batch)
 	return false, nil
 }
 
+func UpsertBlocklistUpdateStatus(ctx context.Context, pool *pgxpool.Pool, status telemetry.BlocklistUpdateStatus) error {
+	_, err := pool.Exec(ctx, `
+		INSERT INTO blocklist_update_status
+			(device_id, request_id, image_sha256, payload_crc32, stage, entry_count, message, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+		ON CONFLICT (device_id, request_id) DO UPDATE SET
+			image_sha256 = EXCLUDED.image_sha256,
+			payload_crc32 = EXCLUDED.payload_crc32,
+			stage = EXCLUDED.stage,
+			entry_count = EXCLUDED.entry_count,
+			message = EXCLUDED.message,
+			updated_at = now()`,
+		status.DeviceID, status.RequestID, status.ImageSHA256, status.PayloadCRC32,
+		status.Stage, status.EntryCount, status.Message,
+	)
+	if err != nil {
+		return fmt.Errorf("upsert blocklist update status: %w", err)
+	}
+	return nil
+}
+
+func GetBlocklistUpdateStatus(ctx context.Context, pool *pgxpool.Pool, deviceID, requestID string) (telemetry.BlocklistUpdateStatus, error) {
+	var status telemetry.BlocklistUpdateStatus
+	err := pool.QueryRow(ctx, `
+		SELECT device_id, request_id, image_sha256, payload_crc32, stage, entry_count, message, updated_at
+		FROM blocklist_update_status
+		WHERE device_id=$1 AND request_id=$2`, deviceID, requestID,
+	).Scan(&status.DeviceID, &status.RequestID, &status.ImageSHA256, &status.PayloadCRC32, &status.Stage,
+		&status.EntryCount, &status.Message, &status.UpdatedAt)
+	if err != nil {
+		return telemetry.BlocklistUpdateStatus{}, err
+	}
+	return status, nil
+}
+
 func executeInsertBatch(ctx context.Context, tx pgx.Tx, batch *pgx.Batch, label string) error {
 	if batch.Len() == 0 {
 		return nil

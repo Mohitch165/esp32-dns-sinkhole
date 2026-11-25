@@ -12,6 +12,10 @@ All routes except liveness and readiness require `Authorization: Bearer <DEVICE_
 | `GET /readyz` | Readiness; confirms PostgreSQL responds. |
 | `POST /api/v1/telemetry/batches` | Store an idempotent batch of DNS events and device/client counter snapshots. |
 | `GET /api/v1/metrics/summary?from=<RFC3339>&to=<RFC3339>` | Return numeric summary for a time range; defaults to the previous 24 hours. |
+| `GET /api/v1/blocklist/manifest` | Return the authenticated OTA image manifest, or `available:false`. |
+| `GET /api/v1/blocklist/images/<sha256>` | Stream the immutable blocklist image after server-side SHA, CRC, count, and ordering checks. |
+| `POST /api/v1/blocklist/status` | Store ESP32 download, flash, install, rollback, and current-list status. |
+| `GET /api/v1/blocklist/status?device_id=...&request_id=...` | Read an update status for the Mac updater. |
 
 The ingest request is capped at 1 MiB, 128 DNS events, and 32 client snapshots. Retries use the same `device_id`, `boot_id`, and `sequence`; the database unique key makes duplicate batches safe. Event indexes must be unique within a batch. API errors do not include SQL details or request contents.
 
@@ -19,29 +23,30 @@ DNS counters and client counts describe that batch only; query events are author
 
 The ESP32 currently buffers up to 128 events and uploads batches of up to 32, flushing after about one second when a batch is not full. The API persists client and DNS event rows using PostgreSQL protocol batches to reduce per-row network round trips. This absorbs short bursts; sustained event rates above upload capacity can still overflow the device's volatile queue.
 
-### Daily blocklist review
+### Automated 48-hour blocklist update
 
-`cmd/review-blocklist` selects distinct domains that received an upstream `NOERROR` response during a local calendar day in `Asia/Kolkata`, intersects them with HaGeZi Pro++, and excludes domains in the snapshot corresponding to the list currently installed on the ESP32. DNS names that are not valid blocklist hostnames, such as service names containing underscores, are skipped and counted in the report. It writes a candidate text file, a merged source (installed list plus candidates), and a JSON report under `outputs/candidates/` with owner-only permissions. `--refresh-reference` downloads the latest source to a temporary file and validates it before replacing the local reference. The command does not build an image or flash the device.
+`cmd/review-blocklist` supports both local calendar dates and rolling `--lookback 48h` windows. It selects successful forwarded DNS events whose upstream response code is `NOERROR`, compares names to the refreshed local HaGeZi Pro++ domains-only feed using parent-domain coverage, and excludes names already covered by the installed snapshot. The JSON report includes one previously resolved DNS probe for each candidate so the updater can confirm the candidate was allowed before deployment and blocked afterwards. Unmatchable DNS names are listed in the report rather than silently discarded.
 
-Run it from this directory to refresh the reference and prepare today's candidate files:
+The full host workflow is in `tools/update_blocklist.py`. It runs a review and merge, verifies the merged source retained every installed domain, builds the image, checks partition capacity, sorted hashes, collisions, CRC32 and SHA-256, verifies the Mac backup against the ESP32's reported count/CRC, and then publishes an immutable image plus manifest. The ESP32 downloads it over certificate-verified HTTPS, pauses DNS during the raw data-partition write, validates readback, and reports each stage. The host then checks that DNS blocks a candidate and still blocks a known old entry. Any failed transfer, install, or smoke check publishes the backed-up image as a new OTA rollback and logs the failure under ignored `outputs/logs/`.
+
+Install the macOS `launchd` job from the repository root after deploying the receiver firmware once using the Arduino IDE network port:
+
+```sh
+python3 tools/install_blocklist_automation.py --install
+```
+
+The scheduler runs at login and checks hourly. It performs a run when 48 hours have elapsed since the last successful review/update and retries failures after six hours. If the Mac is asleep or off, the next login/wake catches up. The updater starts the Go API from the root checkout if its health check is unavailable; PostgreSQL still needs to be installed and running. To review/build without touching the device, run `python3 tools/update_blocklist.py --dry-run`. To run a full cycle immediately, run `python3 tools/update_blocklist.py --force`. To remove the schedule, run `python3 tools/install_blocklist_automation.py --uninstall`.
+
+Generated DNS reports, active snapshots, backups, images, and logs are ignored by Git and use owner-only permissions. The automation fails closed if the receiver firmware has not reported a valid current list or the local backup differs from the ESP32. The first firmware containing the receiver must be sent once through the existing Arduino network OTA service; subsequent blocklist refreshes and rollback are fully automatic HTTPS data-partition updates and do not use USB.
+
+For a one-off report without OTA, run the review command from this directory:
 
 ```sh
 set -a
 source .env.local
 set +a
-go run ./cmd/review-blocklist --refresh-reference
+go run ./cmd/review-blocklist --refresh-reference --lookback 48h
 ```
-
-Use `--date YYYY-MM-DD` to review a specific local day. `../outputs/installed-pro-plus-onlydomains.txt` is the preserved baseline for the currently installed version; update that snapshot only after a new blocklist has passed validation and the ESP32 reports it ready. From the repository root, build the resulting merged source with:
-
-```sh
-python3 tools/build_blocklist.py \
-  --source outputs/candidates/blocklist-source-YYYY-MM-DD.txt \
-  --output outputs/candidates/pro-plus-fnv40-YYYY-MM-DD.nbl \
-  --manifest outputs/candidates/pro-plus-fnv40-YYYY-MM-DD.manifest.json
-```
-
-Inspect the manifest, then use `tools/flash_blocklist.py --image ... --manifest ...` for a validated dry run. The existing flash script requires explicit confirmation before it writes. Raw blocklist delivery is separate from firmware OTA.
 
 ### Event meaning
 

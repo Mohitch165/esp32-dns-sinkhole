@@ -74,3 +74,14 @@ type MetricsSummary struct {
 	ServiceFailurePercent   float64   `json:"service_failure_percent"`
 	MeanUpstreamLatencyMS   float64   `json:"mean_upstream_latency_ms"`
 }
+
+type BlocklistUpdateStatus struct {
+	DeviceID     string    `json:"device_id"`
+	RequestID    string    `json:"request_id"`
+	ImageSHA256  string    `json:"image_sha256"`
+	PayloadCRC32 string    `json:"payload_crc32"`
+	Stage        string    `json:"stage"`
+	EntryCount   int64     `json:"entry_count"`
+	Message      string    `json:"message"`
+	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+}

@@ -23,26 +23,32 @@ import (
 const maxRequestBytes = 1 << 20
 
 type Server struct {
-	pool      *pgxpool.Pool
-	tokenHash [32]byte
-	logger    *slog.Logger
-	mux       *http.ServeMux
+	pool         *pgxpool.Pool
+	tokenHash    [32]byte
+	logger       *slog.Logger
+	mux          *http.ServeMux
+	blocklistDir string
 }
 
-func NewServer(pool *pgxpool.Pool, token string, logger *slog.Logger) *Server {
+func NewServer(pool *pgxpool.Pool, token string, logger *slog.Logger, blocklistDir string) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	s := &Server{
-		pool:      pool,
-		tokenHash: sha256.Sum256([]byte(token)),
-		logger:    logger,
-		mux:       http.NewServeMux(),
+		pool:         pool,
+		tokenHash:    sha256.Sum256([]byte(token)),
+		logger:       logger,
+		mux:          http.NewServeMux(),
+		blocklistDir: blocklistDir,
 	}
 	s.mux.HandleFunc("GET /healthz", s.health)
 	s.mux.HandleFunc("GET /readyz", s.ready)
 	s.mux.Handle("POST /api/v1/telemetry/batches", s.requireToken(http.HandlerFunc(s.ingestBatch)))
 	s.mux.Handle("GET /api/v1/metrics/summary", s.requireToken(http.HandlerFunc(s.metricsSummary)))
+	s.mux.Handle("GET /api/v1/blocklist/manifest", s.requireToken(http.HandlerFunc(s.blocklistManifest)))
+	s.mux.Handle("GET /api/v1/blocklist/images/{sha256}", s.requireToken(http.HandlerFunc(s.blocklistImage)))
+	s.mux.Handle("POST /api/v1/blocklist/status", s.requireToken(http.HandlerFunc(s.postBlocklistStatus)))
+	s.mux.Handle("GET /api/v1/blocklist/status", s.requireToken(http.HandlerFunc(s.getBlocklistStatus)))
 	return s
 }
 

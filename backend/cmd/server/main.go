@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -24,6 +25,10 @@ func main() {
 	listenAddr := strings.TrimSpace(os.Getenv("LISTEN_ADDR"))
 	certFile := strings.TrimSpace(os.Getenv("TLS_CERT_FILE"))
 	keyFile := strings.TrimSpace(os.Getenv("TLS_KEY_FILE"))
+	blocklistDir := strings.TrimSpace(os.Getenv("BLOCKLIST_UPDATE_DIR"))
+	if blocklistDir == "" {
+		blocklistDir = filepath.Join("..", "outputs", "runtime", "blocklist-ota")
+	}
 	if listenAddr == "" {
 		listenAddr = "127.0.0.1:8443"
 	}
@@ -53,7 +58,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := api.NewServer(pool, apiToken, logger)
+	blocklistDir, err = filepath.Abs(blocklistDir)
+	if err != nil {
+		logger.Error("resolve blocklist update directory", "error", err)
+		os.Exit(2)
+	}
+	service := api.NewServer(pool, apiToken, logger, blocklistDir)
 	httpServer := &http.Server{
 		Addr:              listenAddr,
 		Handler:           service.Handler(),

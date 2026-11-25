@@ -2,10 +2,13 @@
 #include <ArduinoOTA.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <freertos/semphr.h>
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
+#include "BlocklistOta.h"
 #include "BlocklistStore.h"
 #include "DnsProxy.h"
 #include "TelemetryClient.h"
@@ -25,15 +28,54 @@ constexpr uint32_t kWifiRetryMs = 10000;
 BlocklistStore blocklist;
 DnsProxy dnsProxy;
 TelemetryClient telemetryClient;
+BlocklistOta blocklistOta;
 IPAddress upstreamIp(1, 1, 1, 1);
 uint16_t upstreamPort = kDefaultUpstreamPort;
 bool dnsStarted = false;
 bool otaStarted = false;
-bool otaInProgress = false;
+std::atomic<bool> otaInProgress{false};
+std::atomic<bool> blocklistUpdateInProgress{false};
+SemaphoreHandle_t dnsMutex = nullptr;
 bool otaPasswordWarningPrinted = false;
 uint8_t lastOtaProgressPercent = 0;
 uint32_t nextWifiAttempt = 0;
 uint32_t nextDnsAttempt = 0;
+
+class DnsMutexGuard {
+ public:
+  DnsMutexGuard() : mutex_(dnsMutex), acquired_(mutex_ != nullptr &&
+                                                  xSemaphoreTake(mutex_, portMAX_DELAY) == pdTRUE) {}
+  ~DnsMutexGuard() {
+    if (acquired_) xSemaphoreGive(mutex_);
+  }
+  bool acquired() const { return acquired_; }
+
+ private:
+  SemaphoreHandle_t mutex_;
+  bool acquired_;
+};
+
+bool pauseDnsForBlocklistUpdate() {
+  if (otaInProgress.load()) return false;
+  blocklistUpdateInProgress.store(true);
+  DnsMutexGuard guard;
+  if (!guard.acquired() || otaInProgress.load()) {
+    blocklistUpdateInProgress.store(false);
+    return false;
+  }
+  if (dnsStarted) {
+    dnsProxy.stop();
+    dnsStarted = false;
+  }
+  Serial.println("DNS paused for blocklist data-partition OTA");
+  return true;
+}
+
+void resumeDnsAfterBlocklistUpdate() {
+  nextDnsAttempt = 0;
+  blocklistUpdateInProgress.store(false);
+  Serial.println("Blocklist OTA finished; DNS service is resuming");
+}
 
 void loadResolverSettings() {
   Preferences preferences;
@@ -82,6 +124,8 @@ bool persistResolver(const IPAddress& ip, uint16_t port) {
     Serial.println("NVS write failed; resolver was not changed");
     return false;
   }
+  DnsMutexGuard guard;
+  if (!guard.acquired()) return false;
   upstreamIp = ip;
   upstreamPort = port;
   dnsProxy.setUpstream(upstreamIp, upstreamPort);
@@ -95,6 +139,8 @@ void processSerialLine(const char* line) {
     return;
   }
   if (std::strcmp(line, "stats") == 0) {
+    DnsMutexGuard guard;
+    if (!guard.acquired()) return;
     dnsProxy.printStats();
     return;
   }
@@ -183,6 +229,7 @@ void ensureOtaStarted() {
     ArduinoOTA.onStart([]() {
       otaInProgress = true;
       lastOtaProgressPercent = 0;
+      DnsMutexGuard guard;
       if (dnsStarted) {
         dnsProxy.stop();
         dnsStarted = false;
@@ -219,10 +266,12 @@ void ensureOtaStarted() {
                   WiFi.localIP().toString().c_str());
   }
 
-  ArduinoOTA.handle();
+  if (!blocklistUpdateInProgress.load()) ArduinoOTA.handle();
 }
 
 void ensureDnsStarted() {
+  DnsMutexGuard guard;
+  if (!guard.acquired() || blocklistUpdateInProgress.load()) return;
   if (otaInProgress) {
     return;
   }
@@ -272,6 +321,10 @@ void setup() {
 
   Serial.println();
   Serial.println("ESP32 DNS sinkhole starting");
+  dnsMutex = xSemaphoreCreateMutex();
+  if (dnsMutex == nullptr) {
+    Serial.println("Could not create DNS update mutex; OTA blocklist updates are disabled");
+  }
   if (std::strcmp(WIFI_SSID, "YOUR_WIFI_SSID") == 0 ||
       std::strcmp(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") == 0) {
     Serial.println("Edit firmware/ESP32DnsSinkhole/secrets.h with your test Wi-Fi credentials");
@@ -293,8 +346,12 @@ void setup() {
   startWifi();
   dnsProxy.setTelemetry(&telemetryClient);
   telemetryClient.begin();
-  ensureDnsStarted();
-  ensureOtaStarted();
+  if (dnsMutex != nullptr) {
+    ensureDnsStarted();
+    ensureOtaStarted();
+    blocklistOta.begin(blocklist, pauseDnsForBlocklistUpdate,
+                       resumeDnsAfterBlocklistUpdate);
+  }
   Serial.println("Serial commands: stats | telemetry | resolver | resolver <IPv4> <port> | help");
 }
 
@@ -302,6 +359,9 @@ void loop() {
   handleSerialCommand();
   ensureDnsStarted();
   ensureOtaStarted();
-  dnsProxy.loop();
+  if (!blocklistUpdateInProgress.load()) {
+    DnsMutexGuard guard;
+    if (guard.acquired() && !blocklistUpdateInProgress.load()) dnsProxy.loop();
+  }
   delay(1);
 }

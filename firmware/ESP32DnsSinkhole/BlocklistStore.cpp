@@ -45,6 +45,7 @@ uint32_t crc32Update(uint32_t crc, const uint8_t* bytes, size_t length) {
 bool BlocklistStore::fail(const char* reason) {
   partition_ = nullptr;
   entryCount_ = 0;
+  payloadCrc32_ = 0;
   ready_ = false;
   status_ = reason;
   return false;
@@ -53,6 +54,7 @@ bool BlocklistStore::fail(const char* reason) {
 bool BlocklistStore::begin() {
   ready_ = false;
   entryCount_ = 0;
+  payloadCrc32_ = 0;
   partition_ = esp_partition_find_first(ESP_PARTITION_TYPE_DATA,
                                         ESP_PARTITION_SUBTYPE_ANY,
                                         "blocklist");
@@ -87,6 +89,7 @@ bool BlocklistStore::begin() {
   }
 
   entryCount_ = count;
+  payloadCrc32_ = expectedCrc;
   ready_ = true;
   status_ = "ready";
   return true;

@@ -22,32 +22,35 @@ import (
 )
 
 var domainLabel = regexp.MustCompile(`^[a-z0-9-]+$`)
+var outputKeyPattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,95}$`)
 
 const referenceURL = "https://cdn.jsdelivr.net/gh/hagezi/dns-blocklists@latest/wildcard/pro.plus-onlydomains.txt"
 
 type reviewReport struct {
-	Date                     string    `json:"date"`
-	Timezone                 string    `json:"timezone"`
-	From                     time.Time `json:"from"`
-	To                       time.Time `json:"to"`
-	GeneratedAt              time.Time `json:"generated_at"`
-	MatchCriteria            string    `json:"match_criteria"`
-	ReferenceVersion         string    `json:"reference_version,omitempty"`
-	ReferenceFile            string    `json:"reference_file"`
-	ReferenceSHA256          string    `json:"reference_sha256"`
-	InstalledSnapshotFile    string    `json:"installed_snapshot_file"`
-	InstalledSnapshotSHA256  string    `json:"installed_snapshot_sha256"`
-	MergedSourceFile         string    `json:"merged_source_file"`
-	MergedSourceSHA256       string    `json:"merged_source_sha256"`
-	MergedDomainCount        int       `json:"merged_domain_count"`
-	SuccessfulEvents         int64     `json:"successful_events"`
-	UnmatchableEventsSkipped int64     `json:"unmatchable_events_skipped"`
-	UnmatchableDomainCount   int       `json:"unmatchable_domain_count"`
-	UnmatchableDomains       []string  `json:"unmatchable_domains"`
-	DistinctDomainsServed    int       `json:"distinct_domains_served"`
-	ReferenceMatches         int       `json:"reference_matches"`
-	AlreadyInstalled         int       `json:"already_installed"`
-	Candidates               []string  `json:"candidates"`
+	Date                     string            `json:"date"`
+	Window                   string            `json:"window,omitempty"`
+	Timezone                 string            `json:"timezone"`
+	From                     time.Time         `json:"from"`
+	To                       time.Time         `json:"to"`
+	GeneratedAt              time.Time         `json:"generated_at"`
+	MatchCriteria            string            `json:"match_criteria"`
+	ReferenceVersion         string            `json:"reference_version,omitempty"`
+	ReferenceFile            string            `json:"reference_file"`
+	ReferenceSHA256          string            `json:"reference_sha256"`
+	InstalledSnapshotFile    string            `json:"installed_snapshot_file"`
+	InstalledSnapshotSHA256  string            `json:"installed_snapshot_sha256"`
+	MergedSourceFile         string            `json:"merged_source_file"`
+	MergedSourceSHA256       string            `json:"merged_source_sha256"`
+	MergedDomainCount        int               `json:"merged_domain_count"`
+	SuccessfulEvents         int64             `json:"successful_events"`
+	UnmatchableEventsSkipped int64             `json:"unmatchable_events_skipped"`
+	UnmatchableDomainCount   int               `json:"unmatchable_domain_count"`
+	UnmatchableDomains       []string          `json:"unmatchable_domains"`
+	DistinctDomainsServed    int               `json:"distinct_domains_served"`
+	ReferenceMatches         int               `json:"reference_matches"`
+	AlreadyInstalled         int               `json:"already_installed"`
+	Candidates               []string          `json:"candidates"`
+	CandidateProbeDomains    map[string]string `json:"candidate_probe_domains,omitempty"`
 }
 
 func main() {
@@ -56,6 +59,8 @@ func main() {
 		fatalf("load local timezone: %v", err)
 	}
 	dateFlag := flag.String("date", "", "local calendar date to review (YYYY-MM-DD; defaults to today in Asia/Kolkata)")
+	lookbackFlag := flag.Duration("lookback", 0, "rolling lookback window, for example 48h; mutually exclusive with --date")
+	outputKeyFlag := flag.String("output-key", "", "safe filename key for candidate/report files")
 	referenceFlag := flag.String("reference", "../outputs/hagezi-pro-plus-onlydomains.txt", "refreshed domains-only reference list")
 	refreshFlag := flag.Bool("refresh-reference", false, "download and validate the latest HaGeZi Pro++ reference before reviewing")
 	installedFlag := flag.String("installed", "../outputs/installed-pro-plus-onlydomains.txt", "domain snapshot corresponding to the blocklist currently on the ESP32")
@@ -71,15 +76,43 @@ func main() {
 	}
 
 	date := strings.TrimSpace(*dateFlag)
-	if date == "" {
-		date = time.Now().In(defaultLocation).Format("2006-01-02")
+	lookback := *lookbackFlag
+	if lookback < 0 || lookback > 30*24*time.Hour {
+		fatalf("--lookback cannot be negative or exceed 30 days")
 	}
-	localStart, err := time.ParseInLocation("2006-01-02", date, defaultLocation)
-	if err != nil {
-		fatalf("invalid --date %q; use YYYY-MM-DD", date)
+	if lookback > 0 && date != "" {
+		fatalf("--date and --lookback cannot be used together")
 	}
-	from := localStart.UTC()
-	to := localStart.AddDate(0, 0, 1).UTC()
+	var from, to time.Time
+	window := ""
+	outputKey := strings.TrimSpace(*outputKeyFlag)
+	if lookback > 0 {
+		to = time.Now().UTC()
+		from = to.Add(-lookback)
+		date = to.In(defaultLocation).Format("2006-01-02")
+		window = fmt.Sprintf("rolling %s ending %s", lookback, to.Format(time.RFC3339))
+		if outputKey == "" {
+			durationKey := strings.NewReplacer(".", "p", "+", "", "-", "m").Replace(lookback.String())
+			outputKey = fmt.Sprintf("window-%s-ending-%s", durationKey, to.Format("20060102T150405Z"))
+		}
+	} else {
+		if date == "" {
+			date = time.Now().In(defaultLocation).Format("2006-01-02")
+		}
+		localStart, err := time.ParseInLocation("2006-01-02", date, defaultLocation)
+		if err != nil {
+			fatalf("invalid --date %q; use YYYY-MM-DD", date)
+		}
+		from = localStart.UTC()
+		to = localStart.AddDate(0, 0, 1).UTC()
+		window = fmt.Sprintf("local day %s (%s)", date, defaultLocation.String())
+		if outputKey == "" {
+			outputKey = date
+		}
+	}
+	if !outputKeyPattern.MatchString(outputKey) {
+		fatalf("invalid --output-key; use up to 96 letters, numbers, dots, underscores, or hyphens")
+	}
 
 	referencePath, err := filepath.Abs(*referenceFlag)
 	if err != nil {
@@ -154,7 +187,7 @@ func main() {
 		fatalf("finish reading DNS events: %v", rowsErr)
 	}
 
-	candidates := make([]string, 0)
+	candidateSet := make(map[string]struct{})
 	unmatchableDomainList := make([]string, 0, len(unmatchableDomains))
 	for domain := range unmatchableDomains {
 		unmatchableDomainList = append(unmatchableDomainList, domain)
@@ -162,17 +195,39 @@ func main() {
 	sort.Strings(unmatchableDomainList)
 	referenceMatches, alreadyInstalled := 0, 0
 	for domain := range served {
-		if _, found := reference[domain]; !found {
+		if parent := findInstalledCover(domain, installed); parent != "" {
+			if findReferenceCover(domain, reference) != "" {
+				referenceMatches++
+				alreadyInstalled++
+			}
+			continue
+		}
+		matchedReference := findReferenceCover(domain, reference)
+		if matchedReference == "" {
 			continue
 		}
 		referenceMatches++
-		if _, found := installed[domain]; found {
-			alreadyInstalled++
-			continue
-		}
+		candidateSet[matchedReference] = struct{}{}
+	}
+	candidates := make([]string, 0, len(candidateSet))
+	for domain := range candidateSet {
 		candidates = append(candidates, domain)
 	}
 	sort.Strings(candidates)
+	candidateProbeDomains := make(map[string]string, len(candidates))
+	servedDomains := make([]string, 0, len(served))
+	for domain := range served {
+		servedDomains = append(servedDomains, domain)
+	}
+	sort.Strings(servedDomains)
+	for _, domain := range servedDomains {
+		matchedReference := findReferenceCover(domain, reference)
+		if _, isCandidate := candidateSet[matchedReference]; isCandidate {
+			if _, alreadySelected := candidateProbeDomains[matchedReference]; !alreadySelected {
+				candidateProbeDomains[matchedReference] = domain
+			}
+		}
+	}
 
 	if err := os.MkdirAll(outDir, 0o700); err != nil {
 		fatalf("create output directory: %v", err)
@@ -180,9 +235,9 @@ func main() {
 	if err := os.Chmod(outDir, 0o700); err != nil {
 		fatalf("secure output directory: %v", err)
 	}
-	candidatePath := filepath.Join(outDir, "served-domains-"+date+".txt")
-	reportPath := filepath.Join(outDir, "served-domains-"+date+".report.json")
-	mergedPath := filepath.Join(outDir, "blocklist-source-"+date+".txt")
+	candidatePath := filepath.Join(outDir, "served-domains-"+outputKey+".txt")
+	reportPath := filepath.Join(outDir, "served-domains-"+outputKey+".report.json")
+	mergedPath := filepath.Join(outDir, "blocklist-source-"+outputKey+".txt")
 
 	var candidateText strings.Builder
 	fmt.Fprintf(&candidateText, "# Generated: %s\n", time.Now().UTC().Format(time.RFC3339))
@@ -214,11 +269,12 @@ func main() {
 
 	report := reviewReport{
 		Date:                     date,
+		Window:                   window,
 		Timezone:                 defaultLocation.String(),
 		From:                     from,
 		To:                       to,
 		GeneratedAt:              time.Now().UTC(),
-		MatchCriteria:            "served successfully (action=forwarded, outcome=upstream_response, response_code=0) AND in refreshed reference list AND absent from the installed domain snapshot",
+		MatchCriteria:            "served successfully (action=forwarded, outcome=upstream_response, response_code=0) AND covered by a domain in the refreshed reference list; candidates are the closest matching reference domains not already covered by the installed list",
 		ReferenceVersion:         referenceVersion,
 		ReferenceFile:            referencePath,
 		ReferenceSHA256:          referenceDigest,
@@ -235,6 +291,7 @@ func main() {
 		ReferenceMatches:         referenceMatches,
 		AlreadyInstalled:         alreadyInstalled,
 		Candidates:               candidates,
+		CandidateProbeDomains:    candidateProbeDomains,
 	}
 	reportJSON, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
@@ -250,7 +307,7 @@ func main() {
 		fatalf("write review report: %v", err)
 	}
 
-	fmt.Printf("Review date: %s (%s)\n", date, defaultLocation.String())
+	fmt.Printf("Review window: %s\n", window)
 	fmt.Printf("Successful DNS events: %d; distinct domains: %d\n", successfulEvents, len(served))
 	fmt.Printf("Unmatchable DNS events skipped: %d; distinct names: %d\n",
 		unmatchableEventsSkipped, len(unmatchableDomainList))
@@ -348,6 +405,24 @@ func canonicalDomain(value string) (string, error) {
 		}
 	}
 	return domain, nil
+}
+
+func findReferenceCover(domain string, reference map[string]struct{}) string {
+	if _, ok := reference[domain]; ok {
+		return domain
+	}
+	labels := strings.Split(domain, ".")
+	for index := 1; index < len(labels)-1; index++ {
+		suffix := strings.Join(labels[index:], ".")
+		if _, ok := reference[suffix]; ok {
+			return suffix
+		}
+	}
+	return ""
+}
+
+func findInstalledCover(domain string, installed map[string]struct{}) string {
+	return findReferenceCover(domain, installed)
 }
 
 func writePrivateAtomic(path string, data []byte) error {

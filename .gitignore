@@ -16,6 +16,8 @@ backend/certs/
 backend/data/
 outputs/candidates/
 outputs/backups/
+outputs/runtime/
+outputs/logs/
 
 # Platform and tool output
 .DS_Store
