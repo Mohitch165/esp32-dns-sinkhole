@@ -1,0 +1,7 @@
+Serial Monitor capture (2026-11-25)
+
+Commands: stats | telemetry | resolver | resolver <IPv4> <port> | help
+Telemetry: queued=0/128 peak=101 dropped=0 upload_failures=25
+Telemetry batch accepted: sequence=138 events=1
+
+The live monitor was cleared before collecting this excerpt. The lines show the device's telemetry queue status and a successful batch acknowledgement without client IPs or queried domains.

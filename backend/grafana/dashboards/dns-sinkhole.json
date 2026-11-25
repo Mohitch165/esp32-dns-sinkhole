@@ -1,0 +1,1084 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Overview",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "DNS queries",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(total_queries),0) AS value FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "Accepted DNS queries in the selected time range."
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Blocked",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(successful_blocks),0) AS value FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "Blocked requests for which the ESP32 sent an NXDOMAIN response."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "DNS queries blocked",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(100.0*SUM(successful_blocks)/NULLIF(SUM(total_queries),0),0) AS value FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "Share of accepted DNS queries that matched the blocklist and received an NXDOMAIN response (successful blocks ÷ all accepted queries). This describes your DNS traffic mix; it is not the percentage of ads blocked or a measure of blocking reliability."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Forwarded",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(forwarded_queries),0) AS value FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "Queries classified for forwarding, including pre-resolver failures."
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Upstream success",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(100.0*SUM(upstream_replies)/NULLIF(SUM(upstream_attempts),0),0) AS value FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "Upstream replies divided by requests that reached the resolver."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Service failure",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(100.0*SUM(service_failures)/NULLIF(SUM(total_queries),0),0) AS value FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "DNS service failures as a share of accepted queries."
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "P95 latency",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY upstream_latency_ms),0)::double precision AS value FROM dns_event_latency WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "95th percentile ESP32-measured upstream DNS round-trip time."
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Mean latency",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(AVG(upstream_latency_ms),0)::double precision AS value FROM dns_event_latency WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}')",
+          "refId": "A"
+        }
+      ],
+      "description": "Mean ESP32-measured upstream DNS round-trip time."
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "DNS traffic",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "DNS requests by outcome",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS time, SUM(block_matches)::double precision AS \"Blocked\", SUM(forwarded_queries)::double precision AS \"Forwarded\" FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') GROUP BY time ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "description": "Second-by-second blocked and forwarded DNS decisions."
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "DNS resolution outcomes",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS time, SUM(resolved_responses)::double precision AS \"Resolved\", SUM(upstream_failures)::double precision AS \"Upstream failures\", SUM(service_failures)::double precision AS \"Service failures\" FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') GROUP BY time ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "description": "Resolution outcomes and failures over time."
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Total DNS queries per second",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 24,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS time, SUM(total_queries)::double precision AS \"Queries / second\" FROM dns_event_metrics WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') GROUP BY time ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "description": "Total accepted DNS queries per second."
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Latency",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Upstream DNS latency percentiles",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin('$__interval'::interval,time,TIMESTAMPTZ '2000-01-01') AS time, percentile_cont(0.50) WITHIN GROUP (ORDER BY upstream_latency_ms)::double precision AS \"P50\", percentile_cont(0.95) WITHIN GROUP (ORDER BY upstream_latency_ms)::double precision AS \"P95\" FROM dns_event_latency WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "Per-bucket event-level P50 and P95 upstream round-trip latency. Values use milliseconds and Grafana's time unit formatting."
+    },
+    {
+      "id": 13,
+      "type": "heatmap",
+      "title": "Upstream DNS latency distribution",
+      "description": "Each sample is an ESP32-measured upstream DNS round trip. Grafana bins samples by time and latency.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "calculate": true,
+        "cellGap": 1,
+        "color": {
+          "mode": "scheme",
+          "scheme": "Spectral"
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "showValue": "never",
+        "tooltip": {
+          "mode": "single",
+          "showColorScale": true
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "decimals": 1,
+          "reverse": false,
+          "unit": "ms",
+          "min": 0
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time AS time, upstream_latency_ms AS value FROM dns_event_latency WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') ORDER BY time",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Clients and blocked domains",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Top clients",
+      "description": "Top DNS clients in the selected time range.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT client_ip AS \"Client IP\", COUNT(*) AS \"DNS queries\", COUNT(*) FILTER (WHERE action='blocked') AS \"Blocked\", COUNT(*) FILTER (WHERE action='forwarded') AS \"Forwarded\" FROM dns_client_activity WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') GROUP BY client_ip ORDER BY COUNT(*) DESC LIMIT 10",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "Most blocked domains",
+      "description": "Most frequently blocked domains in the selected time range.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 30,
+        "w": 12,
+        "h": 7
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT domain AS \"Blocked domain\", COUNT(*) AS \"Requests blocked\" FROM dns_domain_activity WHERE $__timeFilter(time) AND action='blocked' AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') GROUP BY domain ORDER BY COUNT(*) DESC LIMIT 10",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "Failure diagnostics",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "DNS failures by outcome",
+      "description": "Counts each DNS service failure class separately, with affected clients and most recent event. Queue-full is shown only if it occurs.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "countRows": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT outcome AS \"Failure outcome\", COUNT(*) AS \"Events\", COUNT(DISTINCT client_ip) AS \"Affected clients\", MAX(time) AS \"Latest event\" FROM dns_client_activity WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') AND outcome IN ('blocked_send_error','upstream_timeout','upstream_send_error','queue_full','client_send_error') GROUP BY outcome ORDER BY COUNT(*) DESC",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "DNS failures over time",
+      "description": "Per-interval counts by failure outcome. Compare clusters across upstream timeouts, send failures, and queue exhaustion.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "sinkhole-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 35,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "sinkhole-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT date_bin('$__interval'::interval, time, TIMESTAMPTZ '2000-01-01') AS time, outcome AS metric, COUNT(*)::double precision AS value FROM dns_client_activity WHERE $__timeFilter(time) AND (('${device_id:raw}' = 'all' AND device_id <> 'esp32-dns-sinkhole') OR device_id = '${device_id:raw}') AND outcome IN ('blocked_send_error','upstream_timeout','upstream_send_error','queue_full','client_send_error') GROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 41,
+  "tags": [
+    "esp32",
+    "dns",
+    "networking"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "postgres",
+          "uid": "sinkhole-postgres"
+        },
+        "definition": "SELECT device_id FROM devices WHERE device_id <> 'esp32-dns-sinkhole' ORDER BY device_id",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": "all",
+        "label": "Device",
+        "multi": false,
+        "name": "device_id",
+        "options": [],
+        "query": "SELECT device_id FROM devices WHERE device_id <> 'esp32-dns-sinkhole' ORDER BY device_id",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "timepicker": {
+    "refresh_intervals": [
+      "5s",
+      "15s",
+      "30s",
+      "1m",
+      "5m"
+    ],
+    "time_options": [
+      "15m",
+      "1h",
+      "3h",
+      "6h",
+      "12h",
+      "24h",
+      "7d"
+    ]
+  },
+  "timezone": "browser",
+  "title": "ESP32 DNS Sinkhole | Network Overview",
+  "uid": "esp32-dns-sinkhole",
+  "version": 1,
+  "weekStart": "",
+  "description": "Near-real-time DNS protection and telemetry. Firmware batches every second; Grafana refreshes every five seconds. The All-device view omits the seeded sample identity. Latency is ESP32-to-upstream DNS round-trip time, separate from telemetry delivery delay."
+}

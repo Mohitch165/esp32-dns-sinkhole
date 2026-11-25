@@ -1,0 +1,29 @@
+# Local credentials and generated secrets
+.env
+.env.*
+!.env.example
+**/.env.local
+**/secrets.h
+**/telemetry_ca.h
+backend/certs/
+*.key
+*.pem
+
+# Local databases, logs, and generated review data
+*.log
+*.sqlite
+*.sqlite3
+backend/data/
+outputs/candidates/
+outputs/backups/
+
+# Platform and tool output
+.DS_Store
+**/.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+build/
+dist/

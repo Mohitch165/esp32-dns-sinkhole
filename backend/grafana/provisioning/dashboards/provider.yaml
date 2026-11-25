@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: Sinkhole dashboards
+    orgId: 1
+    folder: ESP32 DNS Sinkhole
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: $SINKHOLE_GRAFANA_DASHBOARD_PATH
+      foldersFromFilesStructure: false

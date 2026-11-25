@@ -1,0 +1,64 @@
+{
+  "device_id": "esp32-dns-sinkhole",
+  "boot_id": "boot-2026-11-25-a1b2c3d4",
+  "sequence": 1,
+  "captured_at": "2026-11-24T22:00:05Z",
+  "firmware_version": "v1.0.0",
+  "blocklist_version": "hagezi-pro-plus-2026-11-25",
+  "counters": {
+    "received": 3,
+    "blocked_matches": 1,
+    "blocked_responses": 1,
+    "forwarded": 2,
+    "upstream_replies": 1,
+    "upstream_timeouts": 1,
+    "queue_full": 0,
+    "malformed": 0,
+    "send_errors": 0
+  },
+  "clients": [
+    {
+      "client_ip": "192.168.1.14",
+      "queries": 3,
+      "blocked": 1,
+      "forwarded": 2,
+      "failures": 1
+    }
+  ],
+  "events": [
+    {
+      "index": 0,
+      "occurred_at": "2026-11-24T22:00:01Z",
+      "client_ip": "192.168.1.14",
+      "domain": "ads.example.test",
+      "query_type": 1,
+      "action": "blocked",
+      "outcome": "blocked_sent",
+      "response_code": 3,
+      "answer_count": 0
+    },
+    {
+      "index": 1,
+      "occurred_at": "2026-11-24T22:00:02Z",
+      "client_ip": "192.168.1.14",
+      "domain": "example.com",
+      "query_type": 1,
+      "action": "forwarded",
+      "outcome": "upstream_response",
+      "response_code": 0,
+      "answer_count": 2,
+      "upstream_latency_ms": 31
+    },
+    {
+      "index": 2,
+      "occurred_at": "2026-11-24T22:00:03Z",
+      "client_ip": "192.168.1.14",
+      "domain": "slow.example.test",
+      "query_type": 1,
+      "action": "forwarded",
+      "outcome": "upstream_timeout",
+      "answer_count": 0,
+      "upstream_latency_ms": 2500
+    }
+  ]
+}

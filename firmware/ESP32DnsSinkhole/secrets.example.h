@@ -1,0 +1,9 @@
+#pragma once
+
+// Copy this file to secrets.h and replace every placeholder locally.
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+#define OTA_UPDATE_PASSWORD "SET_A_UNIQUE_OTA_PASSWORD"
+#define TELEMETRY_API_URL "https://YOUR_MAC_LAN_IP:8443/api/v1/telemetry/batches"
+#define TELEMETRY_API_TOKEN "GENERATE_A_RANDOM_SECRET_AT_LEAST_32_CHARACTERS_LONG"
+#define BLOCKLIST_VERSION "SET_TO_THE_INSTALLED_LIST_VERSION"
