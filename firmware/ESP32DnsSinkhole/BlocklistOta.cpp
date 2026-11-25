@@ -251,6 +251,11 @@ bool BlocklistOta::fetchManifest(Manifest& manifest, bool& available) {
   if (!makeAuthenticatedClient(client, http, manifestUrl_)) return false;
   const int result = http.GET();
   if (result != HTTP_CODE_OK) {
+    char tlsError[128] = {};
+    const int tlsErrorCode = client.lastError(tlsError, sizeof(tlsError));
+    Serial.printf("Blocklist OTA manifest GET failed: status=%d tls_error=%d:%s epoch=%lld free_heap=%u\n",
+                  result, tlsErrorCode, tlsError, static_cast<long long>(std::time(nullptr)),
+                  static_cast<unsigned>(ESP.getFreeHeap()));
     http.end();
     return false;
   }

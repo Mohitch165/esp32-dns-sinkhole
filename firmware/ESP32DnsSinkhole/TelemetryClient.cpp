@@ -243,8 +243,12 @@ bool TelemetryClient::postBatch(const String& body) {
   if (status < 200 || status >= 300) {
     String detail = status < 0 ? HTTPClient::errorToString(status) : http.getString();
     if (detail.length() > 160) detail.remove(160);
-    Serial.printf("Telemetry POST failed: status=%d detail=%s free_heap=%u min_free_heap=%u\n",
-                  status, detail.c_str(), static_cast<unsigned>(ESP.getFreeHeap()),
+    char tlsError[128] = {};
+    const int tlsErrorCode = tlsClient.lastError(tlsError, sizeof(tlsError));
+    Serial.printf("Telemetry POST failed: status=%d detail=%s tls_error=%d:%s epoch=%lld free_heap=%u min_free_heap=%u\n",
+                  status, detail.c_str(), tlsErrorCode, tlsError,
+                  static_cast<long long>(time(nullptr)),
+                  static_cast<unsigned>(ESP.getFreeHeap()),
                   static_cast<unsigned>(ESP.getMinFreeHeap()));
   }
   http.end();

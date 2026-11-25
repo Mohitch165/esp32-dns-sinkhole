@@ -31,7 +31,7 @@ The sanitized Serial Monitor session excerpt is in [`docs/serial-monitor-session
 
 ## Quick start
 
-1. Install Arduino IDE 2 and the Espressif ESP32 board package. Open `firmware/ESP32DnsSinkhole/` as a sketch and select the project's `partitions.csv` as the custom partition table.
+1. Install Arduino IDE 2 and the Espressif ESP32 board package. Open `firmware/ESP32DnsSinkhole/` as a sketch and select the project's `partitions.csv` as the custom partition table. For this ESP32-D0WD-V3, set **Flash Size: 4 MB**, **Flash Mode: DIO**, and **Flash Frequency: 40 MHz**; the 80 MHz setting caused a boot-time flash initialization assertion on the trial board.
 2. Copy `secrets.example.h` to `secrets.h`, then set Wi-Fi details, a unique OTA password, the API URL, and a random API token. Generate a local CA and server certificate; put the CA certificate in `telemetry_ca.h`. Keep these local configuration files and private keys out of Git.
 3. Set up PostgreSQL and the Go API using [`backend/README.md`](backend/README.md). Bind the API to the Mac's reserved LAN address and generate a TLS certificate whose IP SAN matches that address.
 4. The board already has the project's custom partition table and an Arduino OTA service. Upload the new blocklist-OTA receiver sketch once through Arduino IDE's **network port** (`esp32-dns-sinkhole`); do not select a USB serial port or change the partition scheme. Check Serial Monitor for `Blocklist OTA worker started` and its initial HTTPS status report.
