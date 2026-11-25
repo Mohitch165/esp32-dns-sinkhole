@@ -12,9 +12,9 @@ An ESP32-based DNS sinkhole with a locally stored compact blocklist, asynchronou
 
 ## Trial dashboard
 
-![Grafana DNS traffic and outcome metrics](docs/screenshots/grafana-network-overview.png)
+![Grafana DNS traffic and outcome metrics](docs/screenshots/grafana-network-overview.jpg)
 
-![Grafana latency, client, and blocked-domain details](docs/screenshots/grafana-latency-and-clients.png)
+![Grafana latency, client, and blocked-domain details](docs/screenshots/grafana-latency-and-clients.jpg)
 
 These real trial screenshots include local client addresses and queried-domain telemetry. Keep this repository private unless you replace them with sanitized captures.
 
