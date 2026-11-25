@@ -16,7 +16,7 @@ An ESP32-based DNS sinkhole with a locally stored compact blocklist, asynchronou
 
 The image is a real trial screenshot and includes private LAN client addresses and DNS telemetry. Keep this repository private unless you replace it with a sanitized capture.
 
-Serial Monitor evidence is in [`docs/serial-monitor-session.txt`](docs/serial-monitor-session.txt). The checked-in excerpt avoids client IPs and queried domain names.
+The sanitized Serial Monitor session excerpt is in [`docs/serial-monitor-session.txt`](docs/serial-monitor-session.txt). A Serial Monitor screenshot still needs to be added; the current desktop capture interface did not produce an image file.
 
 ## Repository layout
 

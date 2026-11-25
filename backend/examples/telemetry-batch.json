@@ -18,7 +18,7 @@
   },
   "clients": [
     {
-      "client_ip": "192.168.1.14",
+      "client_ip": "192.0.2.14",
       "queries": 3,
       "blocked": 1,
       "forwarded": 2,
@@ -29,7 +29,7 @@
     {
       "index": 0,
       "occurred_at": "2026-11-24T22:00:01Z",
-      "client_ip": "192.168.1.14",
+      "client_ip": "192.0.2.14",
       "domain": "ads.example.test",
       "query_type": 1,
       "action": "blocked",
@@ -40,7 +40,7 @@
     {
       "index": 1,
       "occurred_at": "2026-11-24T22:00:02Z",
-      "client_ip": "192.168.1.14",
+      "client_ip": "192.0.2.14",
       "domain": "example.com",
       "query_type": 1,
       "action": "forwarded",
@@ -52,7 +52,7 @@
     {
       "index": 2,
       "occurred_at": "2026-11-24T22:00:03Z",
-      "client_ip": "192.168.1.14",
+      "client_ip": "192.0.2.14",
       "domain": "slow.example.test",
       "query_type": 1,
       "action": "forwarded",
