@@ -12,9 +12,11 @@ An ESP32-based DNS sinkhole with a locally stored compact blocklist, asynchronou
 
 ## Trial dashboard
 
-![Grafana dashboard from the first main-router trial](docs/screenshots/grafana-network-overview.png)
+![Grafana DNS traffic and outcome metrics](docs/screenshots/grafana-network-overview.png)
 
-The image is a real trial screenshot and includes private LAN client addresses and DNS telemetry. Keep this repository private unless you replace it with a sanitized capture.
+![Grafana latency, client, and blocked-domain details](docs/screenshots/grafana-latency-and-clients.png)
+
+These real trial screenshots include local client addresses and queried-domain telemetry. Keep this repository private unless you replace them with sanitized captures.
 
 The sanitized Serial Monitor session excerpt is in [`docs/serial-monitor-session.txt`](docs/serial-monitor-session.txt). A Serial Monitor screenshot still needs to be added; the current desktop capture interface did not produce an image file.
 
