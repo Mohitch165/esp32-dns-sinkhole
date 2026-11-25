@@ -36,6 +36,7 @@ bool otaStarted = false;
 std::atomic<bool> otaInProgress{false};
 std::atomic<bool> blocklistUpdateInProgress{false};
 SemaphoreHandle_t dnsMutex = nullptr;
+SemaphoreHandle_t httpsSessionMutex = nullptr;
 bool otaPasswordWarningPrinted = false;
 uint8_t lastOtaProgressPercent = 0;
 uint32_t nextWifiAttempt = 0;
@@ -322,8 +323,12 @@ void setup() {
   Serial.println();
   Serial.println("ESP32 DNS sinkhole starting");
   dnsMutex = xSemaphoreCreateMutex();
+  httpsSessionMutex = xSemaphoreCreateRecursiveMutex();
   if (dnsMutex == nullptr) {
     Serial.println("Could not create DNS update mutex; OTA blocklist updates are disabled");
+  }
+  if (httpsSessionMutex == nullptr) {
+    Serial.println("Could not create HTTPS session mutex; telemetry and blocklist OTA are disabled");
   }
   if (std::strcmp(WIFI_SSID, "YOUR_WIFI_SSID") == 0 ||
       std::strcmp(WIFI_PASSWORD, "YOUR_WIFI_PASSWORD") == 0) {
@@ -345,12 +350,12 @@ void setup() {
 
   startWifi();
   dnsProxy.setTelemetry(&telemetryClient);
-  telemetryClient.begin();
-  if (dnsMutex != nullptr) {
+  if (httpsSessionMutex != nullptr) telemetryClient.begin(httpsSessionMutex);
+  if (dnsMutex != nullptr && httpsSessionMutex != nullptr) {
     ensureDnsStarted();
     ensureOtaStarted();
     blocklistOta.begin(blocklist, pauseDnsForBlocklistUpdate,
-                       resumeDnsAfterBlocklistUpdate);
+                       resumeDnsAfterBlocklistUpdate, httpsSessionMutex);
   }
   Serial.println("Serial commands: stats | telemetry | resolver | resolver <IPv4> <port> | help");
 }

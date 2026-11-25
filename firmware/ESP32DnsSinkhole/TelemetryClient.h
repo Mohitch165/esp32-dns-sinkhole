@@ -5,6 +5,7 @@
 #include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
+#include <freertos/semphr.h>
 
 enum class DnsTelemetryAction : uint8_t { Blocked, Forwarded, Rejected };
 enum class DnsTelemetryOutcome : uint8_t {
@@ -21,7 +22,7 @@ enum class DnsTelemetryOutcome : uint8_t {
 
 struct DnsTelemetryEvent {
   uint32_t capturedAtMs = 0;
-  IPAddress clientIp;
+  ip_addr_t clientIp{};
   char domain[254] = {};
   uint16_t queryType = 1;
   DnsTelemetryAction action = DnsTelemetryAction::Rejected;
@@ -33,7 +34,7 @@ struct DnsTelemetryEvent {
 
 class TelemetryClient {
  public:
-  bool begin();
+  bool begin(SemaphoreHandle_t httpsSessionMutex);
   bool enqueue(const IPAddress& clientIp, const char* domain, uint16_t queryType,
                DnsTelemetryAction action, DnsTelemetryOutcome outcome,
                int responseCode = -1, uint16_t answerCount = 0,
@@ -50,11 +51,16 @@ class TelemetryClient {
 
   static void taskEntry(void* argument);
   void run();
-  bool postBatch(const String& body);
+  bool receiveEvent(DnsTelemetryEvent& event, TickType_t timeout);
+  bool postBatch(String& body);
   String makeBatch(const DnsTelemetryEvent* events, size_t count,
                    time_t capturedAt, uint32_t capturedAtMs);
 
+  // Only slot numbers enter the FreeRTOS queues. Each slot has exactly one owner.
+  uint32_t* slots_ = nullptr;
+  QueueHandle_t freeSlots_ = nullptr;
   QueueHandle_t queue_ = nullptr;
+  SemaphoreHandle_t httpsSessionMutex_ = nullptr;
   std::atomic<uint32_t> droppedEvents_{0};
   std::atomic<uint32_t> uploadFailures_{0};
   std::atomic<uint32_t> queueHighWater_{0};

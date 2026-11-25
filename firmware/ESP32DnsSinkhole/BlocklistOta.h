@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 #include "BlocklistStore.h"
 
@@ -20,7 +21,8 @@ class BlocklistOta {
   };
 
   bool begin(BlocklistStore& store, PauseDnsForBlocklistUpdate pauseDns,
-             ResumeDnsAfterBlocklistUpdate resumeDns);
+             ResumeDnsAfterBlocklistUpdate resumeDns,
+             SemaphoreHandle_t httpsSessionMutex);
 
  private:
   static void taskEntry(void* argument);
@@ -35,6 +37,7 @@ class BlocklistOta {
   BlocklistStore* store_ = nullptr;
   PauseDnsForBlocklistUpdate pauseDns_ = nullptr;
   ResumeDnsAfterBlocklistUpdate resumeDns_ = nullptr;
+  SemaphoreHandle_t httpsSessionMutex_ = nullptr;
   String manifestUrl_;
   String imageUrlBase_;
   String statusUrl_;

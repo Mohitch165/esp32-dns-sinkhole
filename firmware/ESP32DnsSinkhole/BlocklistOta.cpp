@@ -3,6 +3,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
 #include <esp_partition.h>
 #include <psa/crypto.h>
 
@@ -12,6 +13,7 @@
 #include <ctime>
 
 #include "secrets.h"
+#include "HttpsSessionGuard.h"
 #include "telemetry_ca.h"
 
 #ifndef TELEMETRY_API_URL
@@ -27,7 +29,7 @@ constexpr char kTelemetryPath[] = "/api/v1/telemetry/batches";
 constexpr size_t kNblHeaderBytes = 16;
 constexpr size_t kNblHashBytes = 5;
 constexpr size_t kTransferChunkBytes = 1024;
-constexpr uint32_t kPollIntervalMs = 10000;
+constexpr uint32_t kPollIntervalMs = 30000;
 constexpr uint32_t kReadTimeoutMs = 30000;
 
 uint32_t readU32Be(const uint8_t* data) {
@@ -150,6 +152,7 @@ bool makeAuthenticatedClient(WiFiClientSecure& client, HTTPClient& http,
   client.setCACert(TELEMETRY_CA_CERT_PEM);
   client.setTimeout(35000);
   if (!http.begin(client, url)) return false;
+  http.setReuse(false);
   http.setTimeout(35000);
   http.addHeader("Authorization", String("Bearer ") + TELEMETRY_API_TOKEN);
   return true;
@@ -174,10 +177,16 @@ String hexDigest(const uint8_t* value, size_t length) {
 }  // namespace
 
 bool BlocklistOta::begin(BlocklistStore& store, PauseDnsForBlocklistUpdate pauseDns,
-                         ResumeDnsAfterBlocklistUpdate resumeDns) {
+                         ResumeDnsAfterBlocklistUpdate resumeDns,
+                         SemaphoreHandle_t httpsSessionMutex) {
   store_ = &store;
   pauseDns_ = pauseDns;
   resumeDns_ = resumeDns;
+  httpsSessionMutex_ = httpsSessionMutex;
+  if (httpsSessionMutex_ == nullptr) {
+    Serial.println("Blocklist OTA disabled; HTTPS session mutex is unavailable");
+    return false;
+  }
   if (!buildApiUrls()) {
     Serial.println("Blocklist OTA disabled; telemetry API URL or credentials are incomplete");
     return false;
@@ -246,6 +255,8 @@ void BlocklistOta::run() {
 }
 
 bool BlocklistOta::fetchManifest(Manifest& manifest, bool& available) {
+  HttpsSessionGuard session(httpsSessionMutex_);
+  if (!session.acquired()) return false;
   WiFiClientSecure client;
   HTTPClient http;
   if (!makeAuthenticatedClient(client, http, manifestUrl_)) return false;
@@ -253,9 +264,11 @@ bool BlocklistOta::fetchManifest(Manifest& manifest, bool& available) {
   if (result != HTTP_CODE_OK) {
     char tlsError[128] = {};
     const int tlsErrorCode = client.lastError(tlsError, sizeof(tlsError));
-    Serial.printf("Blocklist OTA manifest GET failed: status=%d tls_error=%d:%s epoch=%lld free_heap=%u\n",
+    Serial.printf("Blocklist OTA manifest GET failed: status=%d tls_error=%d:%s epoch=%lld free_heap=%u free_internal=%u largest_internal=%u\n",
                   result, tlsErrorCode, tlsError, static_cast<long long>(std::time(nullptr)),
-                  static_cast<unsigned>(ESP.getFreeHeap()));
+                  static_cast<unsigned>(ESP.getFreeHeap()),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
     http.end();
     return false;
   }
@@ -265,6 +278,8 @@ bool BlocklistOta::fetchManifest(Manifest& manifest, bool& available) {
 }
 
 bool BlocklistOta::applyManifest(const Manifest& manifest) {
+  HttpsSessionGuard session(httpsSessionMutex_);
+  if (!session.acquired()) return false;
   const uint32_t currentCount = store_->entryCount();
   const uint32_t currentCrc = store_->payloadCrc32();
   if (store_->isReady() && manifest.entryCount == currentCount &&
@@ -282,6 +297,7 @@ bool BlocklistOta::applyManifest(const Manifest& manifest) {
              manifest.payloadCrc32.c_str(), "downloading", manifest.entryCount,
              "downloading blocklist image over verified HTTPS");
 
+  // Status posts open their own TLS connection. Close them before streaming the image.
   WiFiClientSecure client;
   HTTPClient http;
   if (!makeAuthenticatedClient(client, http, imageUrlBase_ + manifest.imageSha256)) {
@@ -331,9 +347,6 @@ bool BlocklistOta::applyManifest(const Manifest& manifest) {
     return false;
   }
 
-  postStatus(manifest.requestId.c_str(), manifest.imageSha256.c_str(),
-             manifest.payloadCrc32.c_str(), "writing", count,
-             "pausing DNS and replacing the blocklist data partition");
   if (pauseDns_ == nullptr || !pauseDns_()) {
     http.end();
     lastHandledRequestId_ = manifest.requestId;
@@ -416,6 +429,9 @@ bool BlocklistOta::applyManifest(const Manifest& manifest) {
   http.end();
 
   if (success) {
+    postStatus(manifest.requestId.c_str(), manifest.imageSha256.c_str(),
+               manifest.payloadCrc32.c_str(), "writing", count,
+               "finished writing flash; verifying blocklist readback");
     success = store_->begin() && store_->entryCount() == count &&
               store_->payloadCrc32() == expectedCrc;
   }
@@ -454,6 +470,8 @@ bool BlocklistOta::postStatus(const char* requestId, const char* imageSha256,
                               const char* payloadCrc32, const char* stage,
                               uint32_t entryCount, const char* message) {
   if (WiFi.status() != WL_CONNECTED) return false;
+  HttpsSessionGuard session(httpsSessionMutex_);
+  if (!session.acquired()) return false;
   WiFiClientSecure client;
   HTTPClient http;
   if (!makeAuthenticatedClient(client, http, statusUrl_)) return false;

@@ -2,13 +2,16 @@
 
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_heap_caps.h>
 #include <esp_system.h>
 #include <time.h>
 
 #include <cstdio>
 #include <cstring>
+#include <type_traits>
 
 #include "secrets.h"
+#include "HttpsSessionGuard.h"
 #include "telemetry_ca.h"
 
 #ifndef TELEMETRY_API_URL
@@ -22,7 +25,10 @@
 #endif
 
 namespace {
-constexpr char kFirmwareVersion[] = "0.2.0";
+constexpr char kFirmwareVersion[] = "0.2.1";
+static_assert(std::is_trivially_copyable<DnsTelemetryEvent>::value);
+static_assert(sizeof(DnsTelemetryEvent) % sizeof(uint32_t) == 0);
+constexpr size_t kEventWords = sizeof(DnsTelemetryEvent) / sizeof(uint32_t);
 constexpr time_t kValidClockEpoch = 1700000000;
 
 const char* actionName(DnsTelemetryAction value) {
@@ -86,17 +92,34 @@ bool isFailure(DnsTelemetryOutcome outcome) {
 }
 }  // namespace
 
-bool TelemetryClient::begin() {
+bool TelemetryClient::begin(SemaphoreHandle_t httpsSessionMutex) {
   if (TELEMETRY_API_URL[0] == '\0' || TELEMETRY_API_TOKEN[0] == '\0' ||
-      TELEMETRY_CA_CERT_PEM[0] == '\0') {
+      TELEMETRY_CA_CERT_PEM[0] == '\0' || httpsSessionMutex == nullptr) {
     Serial.println("Telemetry disabled; configure TELEMETRY_API_URL, TELEMETRY_API_TOKEN, and CA certificate");
     return false;
   }
 
-  queue_ = xQueueCreate(kQueueCapacity, sizeof(DnsTelemetryEvent));
-  if (queue_ == nullptr) {
+  httpsSessionMutex_ = httpsSessionMutex;
+  slots_ = static_cast<uint32_t*>(heap_caps_malloc(
+      kQueueCapacity * sizeof(DnsTelemetryEvent), MALLOC_CAP_INTERNAL | MALLOC_CAP_32BIT));
+  freeSlots_ = xQueueCreate(kQueueCapacity, sizeof(uint8_t));
+  queue_ = xQueueCreate(kQueueCapacity, sizeof(uint8_t));
+  auto releaseQueue = [this]() {
+    if (queue_) vQueueDelete(queue_);
+    if (freeSlots_) vQueueDelete(freeSlots_);
+    heap_caps_free(slots_);
+    slots_ = nullptr;
+    freeSlots_ = queue_ = nullptr;
+  };
+  if (!slots_ || !freeSlots_ || !queue_) {
+    releaseQueue();
     Serial.println("Telemetry disabled; could not allocate event queue");
     return false;
+  }
+  static_assert(kQueueCapacity <= 256);
+  for (size_t i = 0; i < kQueueCapacity; ++i) {
+    uint8_t slot = static_cast<uint8_t>(i);
+    xQueueSend(freeSlots_, &slot, 0);
   }
   std::snprintf(bootId_, sizeof(bootId_), "%08lx%08lx",
                 static_cast<unsigned long>(esp_random()),
@@ -105,8 +128,7 @@ bool TelemetryClient::begin() {
   const BaseType_t created = xTaskCreatePinnedToCore(
       taskEntry, "dns-telemetry", 16384, this, 1, nullptr, 0);
   if (created != pdPASS) {
-    vQueueDelete(queue_);
-    queue_ = nullptr;
+    releaseQueue();
     Serial.println("Telemetry disabled; could not start worker task");
     return false;
   }
@@ -121,9 +143,14 @@ bool TelemetryClient::enqueue(const IPAddress& clientIp, const char* domain,
   if (queue_ == nullptr) {
     return false;
   }
-  DnsTelemetryEvent event;
+  uint8_t slot;
+  if (xQueueReceive(freeSlots_, &slot, 0) != pdTRUE) {
+    droppedEvents_.fetch_add(1, std::memory_order_relaxed);
+    return false;
+  }
+  DnsTelemetryEvent event{};
   event.capturedAtMs = millis();
-  event.clientIp = clientIp;
+  clientIp.to_ip_addr_t(&event.clientIp);
   std::snprintf(event.domain, sizeof(event.domain), "%s", domain == nullptr ? "" : domain);
   event.queryType = queryType == 0 ? 1 : queryType;
   event.action = action;
@@ -131,7 +158,15 @@ bool TelemetryClient::enqueue(const IPAddress& clientIp, const char* domain,
   event.responseCode = static_cast<int8_t>(responseCode);
   event.answerCount = answerCount;
   event.upstreamLatencyUs = upstreamLatencyUs;
-  if (xQueueSend(queue_, &event, 0) == pdTRUE) {
+  // IRAM permits only aligned 32-bit accesses. Copy bytes only on the DRAM side.
+  volatile uint32_t* target = slots_ + slot * kEventWords;
+  const auto* bytes = reinterpret_cast<const uint8_t*>(&event);
+  for (size_t i = 0; i < kEventWords; ++i) {
+    uint32_t word;
+    std::memcpy(&word, bytes + i * sizeof(word), sizeof(word));
+    target[i] = word;
+  }
+  if (xQueueSend(queue_, &slot, 0) == pdTRUE) {
     const uint32_t waiting = static_cast<uint32_t>(uxQueueMessagesWaiting(queue_));
     uint32_t peak = queueHighWater_.load(std::memory_order_relaxed);
     while (waiting > peak &&
@@ -141,8 +176,22 @@ bool TelemetryClient::enqueue(const IPAddress& clientIp, const char* domain,
     }
     return true;
   }
+  xQueueSend(freeSlots_, &slot, 0);
   droppedEvents_.fetch_add(1, std::memory_order_relaxed);
   return false;
+}
+
+bool TelemetryClient::receiveEvent(DnsTelemetryEvent& event, TickType_t timeout) {
+  uint8_t slot;
+  if (xQueueReceive(queue_, &slot, timeout) != pdTRUE) return false;
+  const volatile uint32_t* source = slots_ + slot * kEventWords;
+  auto* bytes = reinterpret_cast<uint8_t*>(&event);
+  for (size_t i = 0; i < kEventWords; ++i) {
+    const uint32_t word = source[i];
+    std::memcpy(bytes + i * sizeof(word), &word, sizeof(word));
+  }
+  xQueueSend(freeSlots_, &slot, 0);
+  return true;
 }
 
 void TelemetryClient::printStats() const {
@@ -165,7 +214,7 @@ void TelemetryClient::run() {
   uint32_t lastClockWarningMs = 0;
   while (true) {
     if (count == 0) {
-      if (xQueueReceive(queue_, &events[0], pdMS_TO_TICKS(10000)) != pdTRUE) {
+      if (!receiveEvent(events[0], pdMS_TO_TICKS(10000))) {
         continue;
       }
       count = 1;
@@ -178,7 +227,7 @@ void TelemetryClient::run() {
         break;
       }
       const TickType_t waitTicks = pdMS_TO_TICKS(kBatchIntervalMs - elapsed);
-      if (xQueueReceive(queue_, &events[count], waitTicks) != pdTRUE) {
+      if (!receiveEvent(events[count], waitTicks)) {
         break;
       }
       ++count;
@@ -222,12 +271,14 @@ void TelemetryClient::run() {
   }
 }
 
-bool TelemetryClient::postBatch(const String& body) {
+bool TelemetryClient::postBatch(String& body) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.printf("Telemetry POST unavailable: Wi-Fi status=%d\n",
                   static_cast<int>(WiFi.status()));
     return false;
   }
+  HttpsSessionGuard session(httpsSessionMutex_);
+  if (!session.acquired()) return false;
   WiFiClientSecure tlsClient;
   tlsClient.setCACert(TELEMETRY_CA_CERT_PEM);
   HTTPClient http;
@@ -239,17 +290,19 @@ bool TelemetryClient::postBatch(const String& body) {
   }
   http.addHeader("Authorization", String("Bearer ") + TELEMETRY_API_TOKEN);
   http.addHeader("Content-Type", "application/json");
-  const int status = http.POST(body);
+  const int status = http.POST(reinterpret_cast<uint8_t*>(&body[0]), body.length());
   if (status < 200 || status >= 300) {
     String detail = status < 0 ? HTTPClient::errorToString(status) : http.getString();
     if (detail.length() > 160) detail.remove(160);
     char tlsError[128] = {};
     const int tlsErrorCode = tlsClient.lastError(tlsError, sizeof(tlsError));
-    Serial.printf("Telemetry POST failed: status=%d detail=%s tls_error=%d:%s epoch=%lld free_heap=%u min_free_heap=%u\n",
+    Serial.printf("Telemetry POST failed: status=%d detail=%s tls_error=%d:%s epoch=%lld free_heap=%u min_free_heap=%u free_internal=%u largest_internal=%u\n",
                   status, detail.c_str(), tlsErrorCode, tlsError,
                   static_cast<long long>(time(nullptr)),
                   static_cast<unsigned>(ESP.getFreeHeap()),
-                  static_cast<unsigned>(ESP.getMinFreeHeap()));
+                  static_cast<unsigned>(ESP.getMinFreeHeap()),
+                  static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
   }
   http.end();
   return status >= 200 && status < 300;
@@ -302,11 +355,11 @@ String TelemetryClient::makeBatch(const DnsTelemetryEvent* events, size_t count,
     }
 
     size_t clientIndex = 0;
-    while (clientIndex < clientCount && clients[clientIndex].ip != event.clientIp) {
+    while (clientIndex < clientCount && clients[clientIndex].ip != IPAddress(&event.clientIp)) {
       ++clientIndex;
     }
     if (clientIndex == clientCount && clientCount < kBatchCapacity) {
-      clients[clientCount].ip = event.clientIp;
+      clients[clientCount].ip = IPAddress(&event.clientIp);
       ++clientCount;
     }
     ClientAggregate& client = clients[clientIndex];
@@ -319,7 +372,13 @@ String TelemetryClient::makeBatch(const DnsTelemetryEvent* events, size_t count,
   }
 
   String body;
-  body.reserve(16000);
+  size_t capacity = 640 + 480 * count;
+  for (size_t i = 0; i < count; ++i) {
+    for (const char* c = events[i].domain; *c; ++c) {
+      capacity += static_cast<unsigned char>(*c) < 0x20 ? 6 : (*c == '"' || *c == '\\' ? 2 : 1);
+    }
+  }
+  if (!body.reserve(capacity)) return String();
   body += F("{\"device_id\":");
   appendJsonString(body, WiFi.macAddress().c_str());
   body += F(",\"boot_id\":");
@@ -382,7 +441,7 @@ String TelemetryClient::makeBatch(const DnsTelemetryEvent* events, size_t count,
     const time_t occurredAt = capturedAt - static_cast<time_t>(ageMs / 1000U);
     appendJsonString(body, formatUtc(occurredAt).c_str());
     body += F(",\"client_ip\":");
-    appendJsonString(body, event.clientIp.toString().c_str());
+    appendJsonString(body, IPAddress(&event.clientIp).toString().c_str());
     body += F(",\"domain\":");
     appendJsonString(body, event.domain);
     body += F(",\"query_type\":");
