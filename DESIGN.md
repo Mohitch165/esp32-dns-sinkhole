@@ -1,47 +1,86 @@
-# Version 1 design decisions
+# Design decisions
 
-## Target and storage
+This document describes the current trial implementation, including firmware `0.2.1` and the Mac-hosted OTA workflow.
 
-- Target the existing classic ESP32 DevKit: 4 MiB flash, no PSRAM.
-- Keep the two OTA application slots for firmware updates.
-- Store one active blocklist in a dedicated raw data partition. The stock Arduino partition selection names a similarly sized area `spiffs`; this project's `partitions.csv` replaces it with a raw `blocklist` partition. Select and verify the project table before flashing.
-- Keep the previous list binary on the Mac. A list update is a short maintenance window: stop DNS service, write the new list, validate it, then resume. If validation fails, report the error and upload the Mac's previous binary. This is intentionally not a two-copy on-device update.
+## Execution boundaries
 
-## Blocklist format and lookup
+The ESP32 handles DNS decisions from its flash blocklist and configured upstream resolver. DNS processing never waits on a Mac API decision. Completed outcomes enter a nonblocking telemetry queue. The Go API persists them in PostgreSQL and Grafana reads database views.
 
-- Source: HaGeZi Multi PRO++ wildcard domains-only feed. The source is aggressive and can cause false positives; maintain an allowlist/override path before using it for the whole home network.
-- Normalize names to lowercase ASCII A-labels, remove a trailing dot, and deduplicate on the Mac.
-- Hash each domain with 64-bit FNV-1a and retain the low 40 bits. Store each hash as five big-endian bytes in ascending numeric order.
-- Firmware computes the query-name hash and each parent-domain suffix hash, then binary-searches the sorted table in flash. It does not keep the full domain names in RAM. Single-label suffixes are skipped when walking parents to avoid treating a TLD such as `com` as a block entry.
-- The builder's `NBL1` header records format version, hash algorithm, entry count, and payload CRC32. The Mac-side manifest also records SHA-256 values for the source and generated binary.
-- Hash collisions are measured by the builder. The current feed build has none. A future feed update must be rebuilt and its collision count reviewed before deployment.
+| Execution context | Responsibility |
+| --- | --- |
+| ESP32 main loop | Parse DNS, match flash hashes, forward queries, handle replies and timeouts |
+| Telemetry worker | Batch completed outcomes and retry authenticated HTTPS uploads |
+| Blocklist OTA worker | Poll the manifest, validate downloads, install and report list status |
+| Mac updater | Review queries, merge source, validate images, retain backups and verify/rollback OTA |
+| macOS login agent | Check hourly and run when the 48-hour interval has elapsed |
 
-## DNS datapath
+A shared recursive HTTPS mutex prevents telemetry and blocklist workers from opening concurrent TLS sessions. Each transfer closes before status posts open another connection. The manifest poll interval is 30 seconds.
 
-1. Receive and parse each client DNS datagram without waiting for an upstream response.
-2. Canonicalize the question name and check it against the blocklist using binary search.
-3. For a match, return NXDOMAIN immediately and update per-client and aggregate counters.
-4. For an allowed name, allocate a bounded pending-request slot, send the query to the configured upstream resolver, and return to processing other packets.
-5. When the upstream reply arrives, map its transaction ID to the saved client/request, restore the client's transaction ID, and forward it. Expired requests receive SERVFAIL and increment a timeout counter.
+## Flash layout
 
-The upstream resolver address and port are configuration, persisted in NVS. The current firmware slice changes them through a nonblocking Serial command; the planned management API can expose the same setting later. The current prototype's Cloudflare resolver is the initial default, but is not baked into the forwarding logic. DNS query handling must not make an HTTP/API call.
+The classic ESP32 trial board has 4 MiB flash and no detected PSRAM. The custom partition table reserves two application slots and one raw blocklist partition.
 
-On the first boot, the NVS namespace must be opened read/write so it can be created before resolver defaults are read. The current sketch does this; an earlier compile opened it read-only and printed an NVS warning when the namespace did not yet exist.
+| Partition | Offset | Size |
+| --- | --- | ---: |
+| `nvs` | `0x9000` | `0x5000` |
+| `otadata` | `0xe000` | `0x2000` |
+| `app0` | `0x10000` | `0x140000` |
+| `app1` | `0x150000` | `0x140000` |
+| `blocklist` | `0x290000` | `0x160000` |
+| `coredump` | `0x3f0000` | `0x10000` |
 
-## Management and updates
+The trial ESP32-D0WD-V3 uses DIO at 40 MHz. An earlier 80 MHz build failed during flash initialization. Firmware OTA writes the inactive application slot and reboots. Blocklist OTA writes the dedicated data partition and resumes DNS after validation.
 
-- Keep management telemetry and configuration outside the DNS request path. The Mac dashboard/API receives batched DNS outcomes through a bounded FreeRTOS queue and separate HTTPS worker; it does not supply a decision for each DNS query. Queue writes are nonblocking, so a full queue can drop telemetry without stalling DNS.
-- The Go API and PostgreSQL schema are in `backend/`. The Mac API currently listens on its LAN address with a locally issued TLS certificate; ESP32 DNS event ingestion uses authenticated HTTPS batches with idempotency keys and a local CA trust root. The default API bind address is loopback; bind to a LAN IP only for a trusted local device.
-- Store event outcomes separately from match/attempt counters: a block is successful only when the synthetic response is sent; an allowed query is resolved only when an upstream response is returned. DNS from clients to the ESP32 remains ordinary DNS/UDP in this version.
-- PostgreSQL stores client IP addresses and queried DNS names. Keep the development service local, do not expose it to the public internet, and define a retention/backup policy before using the telemetry for longer periods.
-- Firmware OTA V1 uses the Arduino OTA upload service on the trusted home LAN, protected by a separate password configured in the local `secrets.h`. The device pauses DNS while an image is being written to the inactive OTA app slot, then reboots. This does not write to or replace the raw blocklist partition. The OTA transport is not HTTPS; the HTTPS management API remains a separate feature.
-- The first firmware containing OTA support must be installed over USB. Later firmware builds can be uploaded over Wi-Fi. An interrupted transfer should leave the current app slot active; test interrupted transfers and post-boot health recovery before relying on OTA as the only recovery path.
-- Treat unlisted queried domains as candidates for review, not automatic block entries. Normal applications also query domains that are absent from a blocklist.
-- Before activating a received list, validate the header, exact byte count, CRC32, and strict hash ordering. Report a clear pass/failure result to the Mac.
-- Firmware currently handles DNS over UDP and HTTPS telemetry. DNS-over-TCP fallback and the Mac-to-device list uploader remain future work before wider network deployment.
+## Blocklist representation
 
-## Current sizing and remaining constraint
+Domains are normalized to lowercase ASCII A-labels, deduplicated on the Mac, and hashed with FNV-1a. The low 40 bits are stored as five big-endian bytes per entry, in strict ascending order. The device computes the queried domain and parent suffix hashes, then binary-searches the flash list. Single-label suffixes are excluded when walking parents.
 
-The generated Pro++ artifact is 1,322,691 bytes. It fits in a raw `0x160000`-byte partition (1,441,792 bytes) with 119,101 bytes remaining, enough for 23,820 more hashes at the current five-byte format. This assumes raw-partition storage, not SPIFFS file capacity. The current prototype sketch uses 958,325 bytes of its 1,310,720-byte OTA app slot, leaving 352,395 bytes before adding the final DNS, API, and OTA code; measure the completed firmware before selecting the partition table.
+The `NBL1` image begins with a 16-byte header containing the format, hash algorithm, entry count, and payload CRC32. The manifest records source and image SHA-256 values. The included image contains 264,535 hashes with zero measured source collisions and occupies 1,322,691 bytes. Its raw partition has 119,101 bytes of remaining capacity, sufficient for 23,820 additional hashes.
 
-Before adding the OTA service, the flash-reader and asynchronous DNS sketch compiled to 985,533 bytes in the 1,310,720-byte OTA slot, with 65,688 bytes of globals. Recompile the OTA-enabled sketch and measure heap use before adding the HTTPS telemetry endpoint, Mac list uploader, and DNS-over-TCP fallback.
+The compact representation bounds flash usage. A collision-free source build does not mathematically eliminate collisions with every possible future query.
+
+## Asynchronous DNS forwarding
+
+The proxy parses a question and decides whether to block or forward it. Blocked requests receive NXDOMAIN. Allowed requests use one of 32 pending slots. The proxy sends upstream without waiting, maps response transaction IDs back to the original clients, and returns to packet processing. The timeout is 2,500 ms. Expired requests receive SERVFAIL.
+
+Resolver address and port are configurable through Serial Monitor and persisted in NVS. Opening the NVS namespace read/write allows first-boot creation. The trial default is `1.1.1.1:53`. Current client transport is DNS over UDP on the IPv4 LAN.
+
+## Telemetry memory and delivery
+
+The queue holds 128 events, and the worker builds batches of up to 32 with an approximately one-second flush interval. Firmware `0.2.1` stores event slots using aligned 32-bit internal memory accesses. FreeRTOS queues transfer slot indices. The worker copies each event into ordinary byte-accessible memory before serializing it. Slot ownership transfers through the queues and returns to the free pool after consumption.
+
+Batch JSON reserves capacity based on its event count and escaped domain lengths. The HTTP client receives the existing payload buffer, avoiding an extra `String` copy. TLS operations are serialized, and diagnostic failures include free internal memory and the largest allocatable block.
+
+The worker preserves device, boot, and sequence identity across retries. PostgreSQL uniqueness constraints deduplicate repeated batches and events. Event timestamps derive from capture age and synchronized network time. Telemetry waits for network time before certificate-verified HTTPS uploads.
+
+The queue is volatile. Bursts or backend outages can drop records while DNS continues operating. Dropped-event and upload-failure counters are cumulative for a device boot and appear in subsequent batches.
+
+## Database and metrics
+
+`devices`, `telemetry_batches`, `dns_events`, and `client_counter_snapshots` are linked by declared foreign keys. `blocklist_update_status` uses a separate composite device/request key. Four views serve Grafana, including second-bucket event metrics and individual upstream latency measurements.
+
+DNS decision and outcome are separate fields. A block match becomes a successful block only if the synthetic response is sent. An upstream reply may carry a non-success DNS response code. A resolved response requires `NOERROR` and at least one answer. Latency uses microseconds where available, with legacy millisecond values converted for old records.
+
+Dashboard time-window counts come from recorded query events. Serial counters may cover another boot/window, include events lost from telemetry, or use different definitions of forwarding. See the denominator definitions in the backend guide.
+
+## Automated review and blocklist OTA
+
+The Mac refreshes the local HaGeZi Multi PRO++ reference and compares successful forwarded `NOERROR` responses from the last 48 hours. Parent-domain coverage excludes names covered by the installed source. Unmatchable DNS names are reported. The tool retains installed domains when merging candidates.
+
+Before publishing, it validates ordering, collisions, CRC32, SHA-256, exact image length, and partition capacity. It compares the ESP32's current entry count and CRC with the Mac's active snapshot, then saves a rollback backup. With no candidates, it records a successful review and skips flashing.
+
+The device fetches an authenticated manifest and immutable image over certificate-verified HTTPS. It validates the header and size, pauses DNS, writes the partition, validates the streamed hash/CRC/order, and reopens the flash reader to verify the resulting list. The Mac checks a previously allowed candidate and an existing blocked domain before promoting its active snapshot.
+
+Failures publish the saved image as an OTA rollback and record the reason. There is one active list on the device. An interrupted write can leave it without a valid list, requiring Mac/network availability to restore the backup. Firmware passes DNS through when no valid list is available. This recovery design has a maintenance window.
+
+The login agent checks hourly, runs when 48 hours have elapsed since the last successful review/update, and retries failures after six hours. It requires an awake, logged-in Mac, a reachable ESP32, and running PostgreSQL. The updater can start the API. A file lock prevents duplicate concurrent runs. Pending work resumes on a later invocation.
+
+## Observed validation and remaining work
+
+The home-network trial demonstrated blocking, forwarding, dashboard ingestion, firmware OTA, current-list reporting, and successful reference reviews with no new candidates. After the telemetry memory fix, a 40-second recovery check recorded 12 batches and 33 queries with zero reported drops or upload failures.
+
+Candidate-changing blocklist deployment, interrupted-write recovery, and induced-failure rollback still require a controlled hardware trial. Sustained router-load validation and DNS-over-TCP fallback also remain open. Recorded home-network results should be read with their timestamps and telemetry coverage, rather than as production guarantees.
+
+## Local data and trust
+
+HTTPS telemetry uses a local CA and bearer token. Firmware Arduino OTA uses a separate password on the trusted LAN. Wi-Fi settings, tokens, private keys, raw review reports, backups, and runtime logs are ignored by Git. PostgreSQL stores queried names and client addresses, so retention and sharing need explicit attention. The database visuals are sanitized snapshots and can be regenerated from the exporter.
